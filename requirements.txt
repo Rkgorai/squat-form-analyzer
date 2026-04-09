@@ -1,0 +1,6 @@
+# Core Computer Vision & Pose Estimation
+opencv-python
+mediapipe
+numpy
+matplotlib
+tqdm
