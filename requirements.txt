@@ -4,3 +4,4 @@ mediapipe
 numpy
 matplotlib
 tqdm
+streamlit
