@@ -13,7 +13,12 @@ A real-time computer vision system utilizing **MediaPipe** to track human kinema
   - [Command-Line Inference (Batch Processing)](#command-line-inference-batch-processing)
 - [Model Options](#model-options)
 - [Configuration & Performance](#configuration--performance)
-- [How It Works](#how-it-works)
+- [Technical Approach](#-technical-approach)
+- [Assumptions](#-assumptions)
+- [Limitations](#️-limitations)
+- [Workarounds & Recommendations](#-workarounds--recommendations)
+- [Notes](#-notes)
+- [Troubleshooting](#️-troubleshooting)
 
 ## ✨ Features
 
@@ -246,60 +251,357 @@ done
 
 ---
 
-## 🔍 How It Works
+## � Technical Approach
 
-### Architecture Overview
+### Overall Architecture
+
+The system follows a **frame-by-frame pose estimation and analysis pipeline**:
 
 ```
 Input Video/Stream
        ↓
 [Frame Extraction]
        ↓
-[Pose Detector - MediaPipe]
+[Pose Detector - MediaPipe Lite/Heavy]
        ↓
-[Landmark Extraction]
+[33 Landmark Point Extraction]
        ↓
-[Squat Form Analyzer]
+[Dynamic Profile Detection (Left/Right)]
        ↓
-[Real-time Feedback & Visualization]
+[Form Rule Evaluation Engine]
        ↓
-Output (Display or Video File)
+[Real-time Feedback Generation & Visualization]
+       ↓
+Output (Streamlit Display or Annotated Video File)
 ```
+
+### Core Technologies
+
+1. **MediaPipe Pose Estimation**
+   - Uses deep learning models to detect 33 body landmarks in real-time
+   - Each landmark includes X, Y coordinates and confidence visibility score
+   - Models: TFLite-based (FP16 precision) for edge device optimization
+
+2. **OpenCV (cv2)**
+   - Frame extraction and manipulation
+   - Image resizing for performance optimization
+   - Skeleton rendering and annotation
+   - Video encoding (H.264 MP4v codec)
+
+3. **Streamlit Framework**
+   - Rapid prototyping of interactive web interface
+   - Real-time video rendering with state management
+   - Session-based state for UI control (start/stop button)
+   - File upload and webcam integration
+
+### Technical Implementation Details
+
+#### Pose Estimation Pipeline
+
+**MediaPipe Configuration:**
+```
+- Running Mode: VIDEO (optimized for sequential frame processing)
+- Min Pose Detection Confidence: 0.5 (triggers pose detection if confidence ≥ 50%)
+- Min Pose Presence Confidence: 0.5 (minimum confidence to include pose in results)
+- Min Tracking Confidence: 0.5 (temporal smoothing threshold)
+```
+
+**Landmark Index Reference:**
+```
+Key Points Used:
+- Shoulder: Left (11) / Right (12)
+- Hip: Left (23) / Right (24)
+- Knee: Left (25) / Right (26)
+- Ankle: Left (27) / Right (28)
+- Toe: Left (31) / Right (32)
+```
+
+#### Dynamic Orientation Detection
+
+The system automatically detects which side of the body faces the camera:
+```python
+if right_hip_visibility > left_hip_visibility:
+    # Use right-side landmarks (shoulder 12, hip 24, knee 26, etc.)
+else:
+    # Use left-side landmarks (shoulder 11, hip 23, knee 25, etc.)
+```
+
+This enables the same form validation logic to work for both left-facing and right-facing users without requiring manual configuration.
+
+#### Form Validation Engine
+
+Three-rule evaluation system:
+
+1. **Hip Depth Rule**: 
+   - Validates that hip Y-coordinate < knee Y-coordinate (hips below knees)
+   - Indicates proper squat depth
+
+2. **Knee Position Rule**:
+   - Validates knee does not extend beyond toe position
+   - Prevents excessive forward knee translation
+   - Accounts for user orientation (right-facing vs. left-facing) via X-coordinate comparison
+
+3. **Back Angle Rule**:
+   - Calculates angle between shoulder-hip-vertical line
+   - Threshold: Back angle ≤ 45° from vertical
+   - Prevents excessive forward lean
+
+#### Feedback Generation
+
+- Real-time text overlay on video frames
+- Color coding: Green (✅ correct) or Red (❌ error)
+- Multiple simultaneous feedback messages joined by "|" separator
+- Automatic text truncation for small screen compatibility
 
 ### Key Components
 
 #### 1. **PoseDetector** (`src/pose_detector.py`)
-- Wraps MediaPipe Pose estimation
-- Automatically downloads models on first run
+- Wraps MediaPipe Pose estimation SDK
+- Automatic model download from Google's CDN on first run
 - Detects 33 body landmarks with confidence scores
-- Handles both webcam and video file inputs
-- Performs pose visualization with annotations
+- Handles both webcam and video file inputs via OpenCV
+- Performs skeleton visualization with MediaPipe drawing utilities
+- Stores detection results for subsequent form analysis
 
 #### 2. **SquatAnalyzer** (`src/squat_analyzer.py`)
-- Analyzes detected pose landmarks
-- Calculates angles between body joints
-- Auto-detects person's orientation (left/right facing)
-- Validates squat depth and form
-- Generates corrective feedback
-- Provides real-time visual feedback overlays
+- Analyzes detected pose landmarks using geometric calculations
+- `calculate_angle()`: Uses atan2 to compute angles between three points
+- `analyze_pose()`: Implements three-rule evaluation engine
+- Auto-detects person's orientation via hip visibility comparison
+- Generates multi-line corrective feedback
+- `draw_feedback()`: Renders overlay text with transparency
 
 #### 3. **Streamlit App** (`app.py`)
-- Interactive web interface
-- Real-time video streaming and display
-- Live feedback dashboard
-- Model and resolution selection
-- Webcam and video file support
+- Interactive web UI built with Streamlit framework
+- Two input modes: Webcam or video file upload
+- Sidebar controls for model selection and resolution
+- Session state management for start/stop analysis button
+- Real-time frame visualization with feedback dashboard
+- Automatic resource cleanup (temporary file deletion)
+- CSS styling for custom button colors and layout optimization
 
 #### 4. **Main Processing Pipeline** (`src/main.py`)
-- Processes entire videos frame-by-frame
-- Applies pose detection to each frame
-- Evaluates squat form
-- Writes annotated output video
-- Shows progress bar with ETA
+- Batch video processing for offline analysis
+- Frame-by-frame iteration with timestamp tracking
+- VideoWriter for H.264 MP4 encoding
+- Progress bar with TQDM showing ETA
+- Maintains original video properties (FPS, resolution, codec)
 
 ---
 
-## 📝 Notes
+## � Assumptions
+
+The system operates under the following assumptions:
+
+### Input Assumptions
+
+1. **Video Format & Codec**
+   - Input videos are in common formats (MP4, MOV, AVI, etc.)
+   - H.264 or similar widely-supported codec
+   - Frame rate ≥ 20 FPS for smooth analysis
+   - Valid video file accessible on disk or streamed from webcam
+
+2. **User Position & Orientation**
+   - User faces directly **left or right** (not angled or at 45°)
+   - Full body is visible in frame (head to feet)
+   - User stands upright between squats (for proper reference baseline)
+   - Single person per frame (system focuses on first detected person)
+
+3. **Environment & Lighting**
+   - **Adequate lighting**: No dark shadows obscuring body
+   - **Clear background**: High contrast between person and background (not black-on-black)
+   - **Stable camera**: Minimal camera shake or movement
+   - **Sufficient space**: User has room to perform full squat motion
+
+4. **MediaPipe Landmark Availability**
+   - All 33 pose landmarks are detectable (confidence ≥ 0.5)
+   - Camera angle permits full visibility of hip, knee, ankle, toe landmarks
+   - Body proportions are typical human morphology (not extreme body compositions)
+
+### Processing Assumptions
+
+1. **Timestamp Validity** (Webcam-specific)
+   - System time advances monotonically (no system clock resets during session)
+   - MediaPipe library requires strictly increasing timestamps in VIDEO mode
+   - Fallback: Increments timestamp by 1ms if processed too quickly
+
+2. **Frame-by-Frame Analysis**
+   - No temporal memory between frames (stateless, per-frame evaluation)
+   - Each frame is evaluated independently for form correctness
+   - Rapid feedback without tracking squat rep state
+
+3. **Model Availability**
+   - Internet connection available on first run for model downloads
+   - Models cached in project root after initial download
+   - Model file integrity (no corruption)
+
+4. **System Resources**
+   - Sufficient RAM for frame buffering and model inference
+   - CPU/GPU capable of processing at target FPS
+   - Temporary file system available for video uploads
+
+### User Behavior Assumptions
+
+1. **Intentional Squat Motion**
+   - User performs squat deliberately (not walking, jumping, or casual movement)
+   - User understands proper squat form concepts (hip depth, knee alignment, back angle)
+   - User reads and acts on feedback in real-time
+
+2. **Compliance with Guidelines**
+   - User faces left or right (not front-on or angled)
+   - User stands at appropriate distance (full body visible)
+   - User wears form-fitting clothing (not loose baggy clothes that obscure landmarks)
+
+---
+
+## ⚠️ Limitations
+
+### Technical Limitations
+
+1. **Single-Person Detection**
+   - System only analyzes first detected person in frame
+   - Multiple people in frame may cause landmark confusion
+   - No multi-person tracking capability
+
+2. **Orientation Constraints**
+   - **Only left/right facing supported** (cardinal directions)
+   - Angled positions (45°, 90°) not supported
+   - Front-facing or back-facing poses not supported
+   - Side-profile essential for proper landmark detection
+
+3. **Lighting Sensitivity**
+   - Poor lighting → decreased pose detection accuracy
+   - Shadows and backlighting degrade landmark visibility
+   - Reflective surfaces may cause over-exposure issues
+   - Dark clothing on dark background → landmarks not detected
+
+4. **Clothing & Body Coverage**
+   - Loose/baggy clothing obscures body shape and joint positions
+   - Covered joints (e.g., full-length winter gear) reduce detection confidence
+   - Long hair, hats, or accessories may interfere with landmark detection
+   - Extreme body types (very tall, very short, obese, muscular) may have reduced accuracy
+
+5. **Camera Quality**
+   - Low-resolution cameras (<1080p) reduce landmark precision
+   - Webcams with high latency impact real-time feedback responsiveness
+   - Frame rate <20 FPS creates perception of jittery feedback
+   - Rolling shutter cameras may distort pose estimates
+
+### Algorithm Limitations
+
+1. **Form Evaluation Rigidity**
+   - Fixed angle thresholds (45° back angle, knee-toe X-distance) work for typical users only
+   - No personalization for individual biomechanics or limb proportions
+   - Cannot distinguish between different squat styles (ATG, parallel, high-bar, low-bar)
+   - All feedback rules apply equally regardless of fitness level
+
+2. **No Rep Counting**
+   - System evaluates individual frames, not continuous squat cycles
+   - Cannot detect squat start/end or rep boundaries
+   - No ability to count total reps performed
+   - Cannot measure rest periods between sets
+
+3. **No Temporal Tracking**
+   - Feedback is per-frame, not per-rep or per-set
+   - Cannot identify if errors are consistent or occasional
+   - No motion smoothing across frames
+   - Rapid feedback may appear jittery due to per-frame evaluation
+
+4. **Back Angle Calculation Simplification**
+   - Back angle calculated relative to vertical line through hip only
+   - Does not account for hip flexion angle or knee angle
+   - May give misleading results for very deep squats
+   - "Vertical drop" reference point is 2D approximation
+
+5. **No Depth Validation Personalization**
+   - Hip-below-knee rule is absolute (no adjustment for femur length)
+   - Short-limbed users may struggle to achieve this naturally
+   - Tall users may have different biomechanical optimal depths
+
+### Performance Limitations
+
+1. **Inference Speed**
+   - **Lite model**: ~30+ FPS on CPU-only systems
+   - **Heavy model**: ~5-15 FPS on CPU, requires GPU for real-time performance
+   - Webcam latency: typically 100-300ms depending on hardware
+   - Video processing: slower than real-time on older machines
+
+2. **Memory Usage**
+   - Heavy model requires 4-6GB RAM peak usage
+   - Large video files loaded entirely for processing (no streaming)
+   - Multiple concurrent analyses not supported
+   - Frame buffering for web display uses RAM
+
+3. **Real-Time Constraints**
+   - Streamlit page redraws on each frame (network/rendering overhead)
+   - Resolution downscaling necessary for smooth performance on CPU
+   - Frame skipping (2x drop) in Streamlit app to maintain responsiveness
+   - Browser refresh lag adds to perceived latency
+
+4. **Video Output Limitations**
+   - Output codec fixed to H.264 MP4 (no custom codec selection)
+   - Output resolution matches input (no resizing option in batch mode)
+   - Frame rate matches input video (cannot reduce for file size)
+   - No quality/bitrate control parameter
+
+### Usability Limitations
+
+1. **No User Feedback History**
+   - No persistent storage of analysis results
+   - Cannot review historical trends or improvements
+   - Session data lost when page refreshed (Streamlit design)
+   - No export of performance metrics or statistics
+
+2. **Limited Error Detection**
+   - Only three form rules evaluated (not comprehensive squat biomechanics)
+   - No detection of equipment use (belt, knee wraps) affecting judgment
+   - Cannot identify pain/injury-induced form deviations
+   - Fatigue-induced form breakdown not tracked
+
+3. **No Advanced Features**
+   - No slow-motion analysis option
+   - No frame-by-frame stepping (Streamlit continuous stream only)
+   - No side-by-side comparison with reference form
+   - No joint angle numerical display (only visual feedback)
+   - No personalized form goals or objective targets
+
+### Dependency & Compatibility
+
+1. **Python Version**: Requires Python 3.8+ (not tested on Python 2.x)
+2. **OS Compatibility**: Tested on Linux; Windows/macOS support depends on OpenCV & MediaPipe
+3. **Webcam Driver**: Requires OpenCV to correctly enumerate and access webcams
+4. **Browser Support**: Streamlit requires modern browser (Chrome, Firefox, Edge); not IE-compatible
+5. **Model Licensing**: MediaPipe Lite/Heavy models pre-converted to FP16 (no double-precision option)
+
+---
+
+## 🎯 Workarounds & Recommendations
+
+### For Better Accuracy
+
+- **Improve Lighting**: Use natural light from front/side; avoid backlighting
+- **Wear Fitted Clothing**: Compression gear or form-fitting clothes improve detection
+- **Increase Distance**: Stand further back so full body occupies more frame pixels
+- **Use Heavy Model**: For offline analysis where speed is not critical
+- **Add GPU**: NVIDIA CUDA-compatible GPU speeds up Heavy model 5-10x
+
+### For Multi-User Scenarios
+
+- Process users sequentially (one at a time)
+- Use wider camera angle and position users far apart
+- Accept that only closest person gets analyzed
+- Consider multi-person pose estimation (outside scope of this project)
+
+### For Different Squat Styles
+
+- Current rules assume parallel squat (hip at knee level)
+- ATG (ass-to-grass) users will trigger false "hip depth correct" earlier
+- High-bar squats may show higher back angle due to posture differences
+- Recommend documenting expected feedback for your squat style
+
+---
+
+## �📝 Notes
 
 - Models are automatically downloaded from Google's MediaPipe repository on first use
 - Ensure you have internet connection for initial model downloads
