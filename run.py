@@ -1,19 +1,47 @@
 import os
+import argparse
 from src.main import process_video
 
 if __name__ == "__main__":
-    # Define paths based on your requested directory structure
-    # INPUT_VIDEO = os.path.join('tests', 'test_videos', 'sample_squat.mp4')
-    # OUTPUT_VIDEO = os.path.join('demo', 'squat_analyzed_output.mp4')
+    # 1. Initialize the Argument Parser
+    parser = argparse.ArgumentParser(description="Analyze squat form from a video file.")
 
-    INPUT_VIDEO = '/home/rahul/Projects/squat-form-analyzer/sample_vids/squat_demo.mp4'  # Update this path to your test video
-    OUTPUT_VIDEO = '/home/rahul/Projects/squat-form-analyzer/demo/squat_demo_analyzed.mp4'  # Desired output path for the analyzed video
-
-    # INPUT_VIDEO = '/home/rahul/Projects/squat-form-analyzer/DeepSquat.mp4'  # Update this path to your test video
-    # OUTPUT_VIDEO = '/home/rahul/Projects/squat-form-analyzer/demo/DeepSquat_analyzed.mp4'  # Desired output path for the analyzed video
+    # 2. Add expected arguments
+    parser.add_argument(
+        "-i", "--input", 
+        type=str, 
+        required=True, 
+        help="Path to the input video file."
+    )
     
-    # Ensure the demo directory exists before saving
-    os.makedirs('demo', exist_ok=True)
+    parser.add_argument(
+        "-o", "--output", 
+        type=str, 
+        required=True, 
+        help="Path where the analyzed video will be saved."
+    )
+    
+    parser.add_argument(
+        "-m", "--model", 
+        type=str, 
+        default="pose_landmarker_lite.task",
+        choices=["pose_landmarker_lite.task", "pose_landmarker_heavy.task"],
+        help="Which MediaPipe model to use (default: pose_landmarker_lite.task)"
+    )
+
+    # 3. Parse the arguments provided by the user
+    args = parser.parse_args()
+
+    # 4. Extract the directory path from the output argument and ensure it exists
+    output_dir = os.path.dirname(args.output)
+    if output_dir:  # Only attempt to create if a directory was specified
+        os.makedirs(output_dir, exist_ok=True)
 
     print("Starting Squat Form Analyzer...")
-    process_video(INPUT_VIDEO, OUTPUT_VIDEO, model_asset_path='pose_landmarker_lite.task')
+    print(f"Input Video: {args.input}")
+    print(f"Output Video: {args.output}")
+    print(f"Model: {args.model}")
+    print("-" * 40)
+
+    # 5. Run the process
+    process_video(args.input, args.output, model_asset_path=args.model)

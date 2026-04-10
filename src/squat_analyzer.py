@@ -87,15 +87,17 @@ class SquatAnalyzer:
     def draw_feedback(self, img, feedback_text, is_correct):
         color = (0, 255, 0) if is_correct else (0, 0, 255)
         
-        # Draw the background rectangle
+        # Get dynamic image dimensions
+        h, w, _ = img.shape
+        
+        # Draw the background rectangle across the full dynamic width
         overlay = img.copy()
-        cv2.rectangle(overlay, (10, 10), (1200, 60), (0, 0, 0), cv2.FILLED)
+        cv2.rectangle(overlay, (0, 0), (w, 60), (0, 0, 0), cv2.FILLED)
         cv2.addWeighted(overlay, 0.6, img, 0.4, 0, img)
         
-        # --- THE FIX ---
-        # OpenCV cannot render emojis. We must strip them out before drawing.
         clean_text = feedback_text.replace("❌ ", "Error: ").replace("✅ ", "")
         
-        cv2.putText(img, clean_text, (20, 45), cv2.FONT_HERSHEY_SIMPLEX, 
-                    1, color, 2, cv2.LINE_AA)
+        # Reduce font scale from 1 to 0.7 so long compound errors fit on smaller screens
+        cv2.putText(img, clean_text, (15, 40), cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.7, color, 2, cv2.LINE_AA)
         return img

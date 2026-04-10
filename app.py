@@ -36,6 +36,27 @@ st.markdown(
         position: sticky;
         top: 3rem;
     }
+
+    /* 4. Custom Button Colors (Grey for Start, Red for Stop) */
+    div.stButton > button[kind="secondary"] {
+        background-color: #6c757d !important;
+        color: white !important;
+        border: none !important;
+        width: 100%;
+    }
+    div.stButton > button[kind="secondary"]:hover {
+        background-color: #5a6268 !important;
+    }
+    
+    div.stButton > button[kind="primary"] {
+        background-color: #dc3545 !important;
+        color: white !important;
+        border: none !important;
+        width: 100%;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        background-color: #c82333 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
@@ -74,8 +95,25 @@ use_original_res = st.sidebar.checkbox(
 )
 
 st.sidebar.markdown("---")
-start_processing = st.sidebar.button("Start Analysis")
-stop_processing = st.sidebar.button("Stop Analysis")
+
+# ---------------------------------------------------------
+# State Management & Dynamic Button
+# ---------------------------------------------------------
+# Initialize the session state variable if it doesn't exist yet
+if 'analyze_running' not in st.session_state:
+    st.session_state.analyze_running = False
+
+# Function to flip the state when the button is clicked
+def toggle_analysis():
+    st.session_state.analyze_running = not st.session_state.analyze_running
+
+# Render the dynamic button based on the current state
+if st.session_state.analyze_running:
+    # If running, show the RED Stop button
+    st.sidebar.button("Stop Analysis", type="primary", on_click=toggle_analysis)
+else:
+    # If stopped, show the GREY Start button
+    st.sidebar.button("Start Analysis", type="secondary", on_click=toggle_analysis)
 
 st.sidebar.info("💡 **Tip:** Face left or right. The system will automatically detect your orientation.")
 
@@ -95,7 +133,8 @@ with col2:
 # ---------------------------------------------------------
 # Application Logic
 # ---------------------------------------------------------
-if start_processing and not stop_processing:
+# Check the session state memory instead of a standard variable
+if st.session_state.analyze_running:
     # Determine Video Source
     if input_source == "Webcam":
         cap = cv2.VideoCapture(0)
@@ -115,11 +154,15 @@ if start_processing and not stop_processing:
     # Setup Frame Skipper
     frame_counter = 0
     skip_rate = 2 
+    last_timestamp_ms = 0
     
     while cap.isOpened():
         success, img = cap.read()
         if not success:
             st.info("End of video stream.")
+            # Automatically flip the button back to grey when the video ends
+            st.session_state.analyze_running = False
+            st.rerun()
             break
             
         # Conditionally resize the image while maintaining aspect ratio
@@ -135,12 +178,16 @@ if start_processing and not stop_processing:
         if frame_counter % skip_rate != 0:
             continue
             
-        # Get timestamp
+        # Get timestamp safely
         if input_source == "Webcam":
             timestamp_ms = int(time.time() * 1000)
+            # Prevent MediaPipe crash if CPU processes frames faster than 1ms
+            if timestamp_ms <= last_timestamp_ms:
+                timestamp_ms = last_timestamp_ms + 1
+            last_timestamp_ms = timestamp_ms
         else:
             timestamp_ms = int(cap.get(cv2.CAP_PROP_POS_MSEC))
-            if timestamp_ms <= 0: timestamp_ms = 1 
+            if timestamp_ms <= 0: timestamp_ms = 1
         
         # A. Process Pose
         img = detector.find_pose(img, timestamp_ms, draw=True)
@@ -169,6 +216,3 @@ if start_processing and not stop_processing:
     cap.release()
     if input_source == "Upload Video" and uploaded_file is not None:
         os.unlink(tfile.name)
-        
-elif stop_processing:
-    st.warning("Analysis stopped by user.")
